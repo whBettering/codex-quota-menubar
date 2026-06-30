@@ -18,6 +18,19 @@ func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ message: String) th
     }
 }
 
+func expectThrows<E: Error & Equatable>(_ expected: E, _ message: String, _ operation: () throws -> Void) throws {
+    do {
+        try operation()
+    } catch let error as E {
+        try expectEqual(error, expected, message)
+        return
+    } catch {
+        throw TestFailure.assertion("\(message): expected \(expected), got \(error)")
+    }
+
+    throw TestFailure.assertion("\(message): expected \(expected), got no error")
+}
+
 func testMapsCodexRateLimitsIntoDisplaySnapshot() throws {
     let json = """
     {
@@ -61,11 +74,63 @@ func testMapsCodexRateLimitsIntoDisplaySnapshot() throws {
     try expectEqual(snapshot.resetCreditsAvailable, 1, "reset credits")
 }
 
+func testFallsBackToLegacyRateLimitsWhenBucketMapIsMissing() throws {
+    let json = """
+    {
+      "rateLimits": {
+        "limitId": "codex",
+        "limitName": null,
+        "primary": { "usedPercent": 37, "windowDurationMins": 300, "resetsAt": null },
+        "secondary": null,
+        "credits": null,
+        "individualLimit": null,
+        "planType": "plus",
+        "rateLimitReachedType": null
+      },
+      "rateLimitsByLimitId": null,
+      "rateLimitResetCredits": null
+    }
+    """.data(using: .utf8)!
+
+    let response = try JSONDecoder().decode(GetAccountRateLimitsResponse.self, from: json)
+    let snapshot = try QuotaMapper.makeSnapshot(from: response)
+
+    try expectEqual(snapshot.primary?.usedPercent, 37, "fallback primary used percent")
+    try expectEqual(snapshot.planType, "plus", "fallback plan type")
+}
+
+func testRejectsNonCodexLegacyRateLimit() throws {
+    let json = """
+    {
+      "rateLimits": {
+        "limitId": "chatgpt",
+        "limitName": null,
+        "primary": { "usedPercent": 91, "windowDurationMins": 300, "resetsAt": null },
+        "secondary": null,
+        "credits": null,
+        "individualLimit": null,
+        "planType": "plus",
+        "rateLimitReachedType": null
+      },
+      "rateLimitsByLimitId": null,
+      "rateLimitResetCredits": null
+    }
+    """.data(using: .utf8)!
+
+    let response = try JSONDecoder().decode(GetAccountRateLimitsResponse.self, from: json)
+
+    try expectThrows(QuotaMappingError.missingCodexRateLimit, "non-Codex legacy bucket") {
+        _ = try QuotaMapper.makeSnapshot(from: response)
+    }
+}
+
 @main
 struct TestRunner {
     static func main() {
         let tests: [(String, () throws -> Void)] = [
-            ("testMapsCodexRateLimitsIntoDisplaySnapshot", testMapsCodexRateLimitsIntoDisplaySnapshot)
+            ("testMapsCodexRateLimitsIntoDisplaySnapshot", testMapsCodexRateLimitsIntoDisplaySnapshot),
+            ("testFallsBackToLegacyRateLimitsWhenBucketMapIsMissing", testFallsBackToLegacyRateLimitsWhenBucketMapIsMissing),
+            ("testRejectsNonCodexLegacyRateLimit", testRejectsNonCodexLegacyRateLimit)
         ]
 
         var failures = 0

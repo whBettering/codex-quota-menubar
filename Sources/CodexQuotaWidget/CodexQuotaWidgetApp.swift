@@ -126,13 +126,17 @@ final class FloatingPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
-        panel.isMovable = false
+        panel.isMovable = true
         panel.isOpaque = false
         panel.level = .statusBar
         panel.titleVisibility = .hidden
 
         let rootView = QuotaView(store: store) { [weak self] isExpanded in
             self?.setExpanded(isExpanded)
+        } onDragDelta: { [weak self] delta in
+            self?.movePanel(by: delta)
+        } onDragEnded: { [weak self] in
+            self?.saveCurrentPosition()
         }
         let hostingController = NSHostingController(rootView: rootView)
         hostingController.view.frame = CGRect(origin: .zero, size: compactSize)
@@ -153,34 +157,100 @@ final class FloatingPanelController {
     }
 
     func show() {
-        panel.setFrame(frame(for: compactSize), display: true)
+        panel.setFrame(initialFrame(for: compactSize), display: true)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
     }
 
     private func setExpanded(_ isExpanded: Bool) {
         let size = isExpanded ? expandedSize : compactSize
+        let origin = constrainedOrigin(
+            FloatingWindowPlacement.originPreservingTopCenter(
+                currentFrame: panel.frame,
+                targetSize: size
+            ),
+            size: size
+        )
+        let frame = CGRect(origin: origin, size: size)
+
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().setFrame(frame(for: size), display: true)
+            panel.animator().setFrame(frame, display: true)
         }
     }
 
     @objc private func screenParametersDidChange() {
-        panel.setFrame(frame(for: panel.frame.size), display: true)
+        let frame = CGRect(
+            origin: constrainedOrigin(panel.frame.origin, size: panel.frame.size),
+            size: panel.frame.size
+        )
+        panel.setFrame(frame, display: true)
+        saveCurrentPosition()
     }
 
-    private func frame(for size: CGSize) -> CGRect {
+    private func initialFrame(for size: CGSize) -> CGRect {
+        let origin = FloatingPanelPositionStore.savedTopCenter()
+            .map {
+                FloatingWindowPlacement.origin(forTopCenter: $0, targetSize: size)
+            }
+            ?? defaultOrigin(for: size)
+
+        return CGRect(origin: constrainedOrigin(origin, size: size), size: size)
+    }
+
+    private func defaultOrigin(for size: CGSize) -> CGPoint {
         let screen = NSScreen.screens.first { $0.frame.origin == .zero }
             ?? NSScreen.main
             ?? NSScreen.screens.first
         let visibleFrame = screen?.visibleFrame ?? .zero
-        let origin = CGPoint(
-            x: visibleFrame.midX - (size.width / 2),
-            y: visibleFrame.maxY - size.height - 5
+        return FloatingWindowPlacement.defaultOrigin(size: size, visibleFrame: visibleFrame)
+    }
+
+    private func constrainedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
+        FloatingWindowPlacement.constrainedOrigin(
+            origin,
+            size: size,
+            visibleFrames: NSScreen.screens.map(\.visibleFrame)
         )
-        return CGRect(origin: origin, size: size)
+    }
+
+    private func movePanel(by delta: CGSize) {
+        let origin = CGPoint(
+            x: panel.frame.origin.x + delta.width,
+            y: panel.frame.origin.y + delta.height
+        )
+        panel.setFrameOrigin(origin)
+    }
+
+    private func saveCurrentPosition() {
+        FloatingPanelPositionStore.saveTopCenter(FloatingWindowPlacement.topCenter(of: panel.frame))
+    }
+}
+
+private enum FloatingPanelPositionStore {
+    private static let xKey = "CodexQuotaWidget.floatingPanel.topCenter.x"
+    private static let yKey = "CodexQuotaWidget.floatingPanel.topCenter.y"
+
+    static func savedTopCenter(defaults: UserDefaults = .standard) -> CGPoint? {
+        guard defaults.object(forKey: xKey) != nil,
+              defaults.object(forKey: yKey) != nil
+        else {
+            return nil
+        }
+
+        return CGPoint(
+            x: defaults.double(forKey: xKey),
+            y: defaults.double(forKey: yKey)
+        )
+    }
+
+    static func saveTopCenter(
+        _ topCenter: CGPoint,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(Double(topCenter.x), forKey: xKey)
+        defaults.set(Double(topCenter.y), forKey: yKey)
     }
 }
 
@@ -188,9 +258,13 @@ struct QuotaView: View {
     @ObservedObject var store: QuotaStore
 
     let onExpansionChange: @MainActor @Sendable (Bool) -> Void
+    let onDragDelta: @MainActor @Sendable (CGSize) -> Void
+    let onDragEnded: @MainActor @Sendable () -> Void
 
     @State private var isExpanded = false
+    @State private var isDragging = false
     @State private var isHovering = false
+    @State private var lastDragScreenPoint: CGPoint?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -204,6 +278,37 @@ struct QuotaView: View {
         }
         .frame(width: isExpanded ? 360 : 206, height: isExpanded ? 172 : 34, alignment: .top)
         .onHover(perform: handleHover)
+        .simultaneousGesture(dragGesture)
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { _ in
+                isDragging = true
+                let point = NSEvent.mouseLocation
+
+                guard let previousPoint = lastDragScreenPoint else {
+                    lastDragScreenPoint = point
+                    return
+                }
+
+                onDragDelta(
+                    CGSize(
+                        width: point.x - previousPoint.x,
+                        height: point.y - previousPoint.y
+                    )
+                )
+                lastDragScreenPoint = point
+            }
+            .onEnded { _ in
+                lastDragScreenPoint = nil
+                isDragging = false
+                onDragEnded()
+
+                if !isHovering {
+                    setExpanded(false)
+                }
+            }
     }
 
     private var compactPill: some View {
@@ -350,7 +455,7 @@ struct QuotaView: View {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            if !isHovering {
+            if !isHovering && !isDragging {
                 setExpanded(false)
             }
         }

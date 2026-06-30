@@ -139,7 +139,10 @@ struct TestRunner {
             ("testExtractsResultForMatchingResponseId", testExtractsResultForMatchingResponseId),
             ("testIgnoresNotificationLines", testIgnoresNotificationLines),
             ("testThrowsForMatchingErrorResponse", testThrowsForMatchingErrorResponse),
-            ("testUsesEnvironmentOverrideForCodexBinaryPath", testUsesEnvironmentOverrideForCodexBinaryPath)
+            ("testUsesEnvironmentOverrideForCodexBinaryPath", testUsesEnvironmentOverrideForCodexBinaryPath),
+            ("testDefaultFloatingWindowOriginUsesTopCenterOfVisibleFrame", testDefaultFloatingWindowOriginUsesTopCenterOfVisibleFrame),
+            ("testResizingPreservesDraggedTopCenter", testResizingPreservesDraggedTopCenter),
+            ("testConstrainedOriginMovesSavedPositionBackIntoVisibleFrame", testConstrainedOriginMovesSavedPositionBackIntoVisibleFrame)
         ]
 
         var failures = 0

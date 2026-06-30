@@ -130,7 +130,11 @@ struct TestRunner {
         let tests: [(String, () throws -> Void)] = [
             ("testMapsCodexRateLimitsIntoDisplaySnapshot", testMapsCodexRateLimitsIntoDisplaySnapshot),
             ("testFallsBackToLegacyRateLimitsWhenBucketMapIsMissing", testFallsBackToLegacyRateLimitsWhenBucketMapIsMissing),
-            ("testRejectsNonCodexLegacyRateLimit", testRejectsNonCodexLegacyRateLimit)
+            ("testRejectsNonCodexLegacyRateLimit", testRejectsNonCodexLegacyRateLimit),
+            ("testCompactTextShowsPrimaryAndWeeklyPercentages", testCompactTextShowsPrimaryAndWeeklyPercentages),
+            ("testCompactTextShowsUnavailableState", testCompactTextShowsUnavailableState),
+            ("testWindowLabelsUseKnownDurations", testWindowLabelsUseKnownDurations),
+            ("testResetTextUsesTimeForSameDayAndDateForOtherDays", testResetTextUsesTimeForSameDayAndDateForOtherDays)
         ]
 
         var failures = 0

@@ -134,7 +134,11 @@ struct TestRunner {
             ("testCompactTextShowsPrimaryAndWeeklyPercentages", testCompactTextShowsPrimaryAndWeeklyPercentages),
             ("testCompactTextShowsUnavailableState", testCompactTextShowsUnavailableState),
             ("testWindowLabelsUseKnownDurations", testWindowLabelsUseKnownDurations),
-            ("testResetTextUsesTimeForSameDayAndDateForOtherDays", testResetTextUsesTimeForSameDayAndDateForOtherDays)
+            ("testResetTextUsesTimeForSameDayAndDateForOtherDays", testResetTextUsesTimeForSameDayAndDateForOtherDays),
+            ("testBuildsAccountRateLimitRequestLine", testBuildsAccountRateLimitRequestLine),
+            ("testExtractsResultForMatchingResponseId", testExtractsResultForMatchingResponseId),
+            ("testIgnoresNotificationLines", testIgnoresNotificationLines),
+            ("testThrowsForMatchingErrorResponse", testThrowsForMatchingErrorResponse)
         ]
 
         var failures = 0

@@ -138,7 +138,8 @@ struct TestRunner {
             ("testBuildsAccountRateLimitRequestLine", testBuildsAccountRateLimitRequestLine),
             ("testExtractsResultForMatchingResponseId", testExtractsResultForMatchingResponseId),
             ("testIgnoresNotificationLines", testIgnoresNotificationLines),
-            ("testThrowsForMatchingErrorResponse", testThrowsForMatchingErrorResponse)
+            ("testThrowsForMatchingErrorResponse", testThrowsForMatchingErrorResponse),
+            ("testUsesEnvironmentOverrideForCodexBinaryPath", testUsesEnvironmentOverrideForCodexBinaryPath)
         ]
 
         var failures = 0

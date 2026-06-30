@@ -32,3 +32,8 @@ func testThrowsForMatchingErrorResponse() throws {
         _ = try JSONRPC.extractResultData(fromLine: line, matchingId: 2)
     }
 }
+
+func testUsesEnvironmentOverrideForCodexBinaryPath() throws {
+    let path = CodexAppServerClient.resolveCodexBinaryPath(environment: ["CODEX_QUOTA_CODEX_BIN": "/tmp/codex-test"])
+    try expectEqual(path, "/tmp/codex-test", "environment override path")
+}

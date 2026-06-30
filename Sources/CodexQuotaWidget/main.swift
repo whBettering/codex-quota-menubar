@@ -2,6 +2,20 @@ import AppKit
 import CodexQuotaCore
 import SwiftUI
 
+if CommandLine.arguments.contains("--print-quota") {
+    Task {
+        do {
+            let snapshot = try await CodexAppServerClient().fetchQuota()
+            print(QuotaFormatting.compactText(for: snapshot))
+            exit(0)
+        } catch {
+            fputs("\(error)\n", stderr)
+            exit(1)
+        }
+    }
+    dispatchMain()
+}
+
 private let app = NSApplication.shared
 private let delegate = AppDelegate()
 app.delegate = delegate
@@ -143,7 +157,10 @@ final class FloatingPanelController {
     }
 
     private func frame(for size: CGSize) -> CGRect {
-        let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+        let screen = NSScreen.screens.first { $0.frame.origin == .zero }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        let visibleFrame = screen?.visibleFrame ?? .zero
         let origin = CGPoint(
             x: visibleFrame.midX - (size.width / 2),
             y: visibleFrame.maxY - size.height - 5

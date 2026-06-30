@@ -518,7 +518,7 @@ dist/
 
 - [ ] **Step 2: Add bundle script**
 
-The script should run `swift build -c release`, copy the release executable into `dist/CodexQuotaWidget.app/Contents/MacOS/`, write an `Info.plist` with `LSUIElement` set to `true`, and ad-hoc sign the app when `codesign` is available.
+The script should run `swift build` using the local verified configuration, copy the executable into `dist/CodexQuotaWidget.app/Contents/MacOS/`, and write a minimal `Info.plist`. The script accepts `CONFIGURATION=release` for experiments, but defaults to `debug` because the current local Swift/AppKit toolchain shows the floating window reliably for debug-built manual bundles.
 
 - [ ] **Step 3: Run bundle script**
 

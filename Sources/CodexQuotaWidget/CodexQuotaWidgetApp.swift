@@ -2,32 +2,45 @@ import AppKit
 import CodexQuotaCore
 import SwiftUI
 
-if CommandLine.arguments.contains("--print-quota") {
-    Task {
-        do {
-            let snapshot = try await CodexAppServerClient().fetchQuota()
-            print(QuotaFormatting.compactText(for: snapshot))
-            exit(0)
-        } catch {
-            fputs("\(error)\n", stderr)
-            exit(1)
+@main
+@MainActor
+enum CodexQuotaWidgetMain {
+    private static let runtime = AppRuntime()
+
+    static func main() {
+        if CommandLine.arguments.contains("--print-quota") {
+            Task {
+                do {
+                    let snapshot = try await CodexAppServerClient().fetchQuota()
+                    print(QuotaFormatting.compactText(for: snapshot))
+                    exit(0)
+                } catch {
+                    fputs("\(error)\n", stderr)
+                    exit(1)
+                }
+            }
+            dispatchMain()
         }
+
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        app.finishLaunching()
+        ProcessInfo.processInfo.disableAutomaticTermination("Codex quota widget stays visible")
+
+        DispatchQueue.main.async {
+            runtime.start()
+        }
+
+        app.run()
     }
-    dispatchMain()
 }
 
-private let app = NSApplication.shared
-private let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.accessory)
-app.run()
-
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppRuntime {
     private var panelController: FloatingPanelController?
     private var quotaStore: QuotaStore?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func start() {
         let store = QuotaStore(fetcher: CodexAppServerClient())
         let controller = FloatingPanelController(store: store)
 
@@ -36,10 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         controller.show()
         store.start()
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        quotaStore?.stop()
     }
 }
 
@@ -104,11 +113,12 @@ final class FloatingPanelController {
     private let compactSize = CGSize(width: 206, height: 34)
     private let expandedSize = CGSize(width: 360, height: 172)
     private let panel: NSPanel
+    private var hostingController: NSHostingController<QuotaView>?
 
     init(store: QuotaStore) {
         panel = NSPanel(
             contentRect: CGRect(origin: .zero, size: compactSize),
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -124,7 +134,11 @@ final class FloatingPanelController {
         let rootView = QuotaView(store: store) { [weak self] isExpanded in
             self?.setExpanded(isExpanded)
         }
-        panel.contentViewController = NSHostingController(rootView: rootView)
+        let hostingController = NSHostingController(rootView: rootView)
+        hostingController.view.frame = CGRect(origin: .zero, size: compactSize)
+        hostingController.view.autoresizingMask = [.width, .height]
+        self.hostingController = hostingController
+        panel.contentView = hostingController.view
 
         NotificationCenter.default.addObserver(
             self,
@@ -140,6 +154,7 @@ final class FloatingPanelController {
 
     func show() {
         panel.setFrame(frame(for: compactSize), display: true)
+        panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
     }
 

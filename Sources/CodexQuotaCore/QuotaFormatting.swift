@@ -6,9 +6,13 @@ public enum QuotaFormatting {
             return "Codex --"
         }
 
-        let primary = snapshot.primary.map { "\($0.usedPercent)%" } ?? "--"
-        let weekly = snapshot.secondary.map { "\($0.usedPercent)%" } ?? "--"
-        return "Codex \(primary) / 周 \(weekly)"
+        let primary = snapshot.primary.map { "\(remainingPercent(for: $0))%" } ?? "--"
+        let weekly = snapshot.secondary.map { "\(remainingPercent(for: $0))%" } ?? "--"
+        return "Codex 剩余 \(primary) / 周 \(weekly)"
+    }
+
+    public static func remainingPercent(for window: QuotaWindow) -> Int {
+        max(0, min(100, 100 - window.usedPercent))
     }
 
     public static func windowLabel(durationMinutes: Int?) -> String {

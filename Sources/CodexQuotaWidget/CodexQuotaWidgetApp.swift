@@ -422,7 +422,7 @@ struct QuotaView: View {
                 Text(QuotaFormatting.windowLabel(durationMinutes: window?.durationMinutes))
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
-                Text(window.map { "\($0.usedPercent)%" } ?? "--")
+                Text(window.map { "剩余 \(QuotaFormatting.remainingPercent(for: $0))%" } ?? "剩余 --")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                 Text(QuotaFormatting.resetText(for: window?.resetsAt))
                     .font(.system(size: 11, weight: .medium))
@@ -430,7 +430,7 @@ struct QuotaView: View {
                     .frame(width: 42, alignment: .trailing)
             }
 
-            progressBar(percent: window?.usedPercent ?? 0, accent: accent)
+            progressBar(percent: window.map { QuotaFormatting.remainingPercent(for: $0) } ?? 0, accent: accent)
         }
     }
 

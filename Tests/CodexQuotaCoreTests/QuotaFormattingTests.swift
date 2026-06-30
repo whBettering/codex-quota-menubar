@@ -1,7 +1,7 @@
 import Foundation
 import CodexQuotaCore
 
-func testCompactTextShowsPrimaryAndWeeklyPercentages() throws {
+func testCompactTextShowsRemainingPrimaryAndWeeklyPercentages() throws {
     let snapshot = QuotaSnapshot(
         primary: QuotaWindow(usedPercent: 15, durationMinutes: 300, resetsAt: nil),
         secondary: QuotaWindow(usedPercent: 2, durationMinutes: 10080, resetsAt: nil),
@@ -10,7 +10,25 @@ func testCompactTextShowsPrimaryAndWeeklyPercentages() throws {
         fetchedAt: Date()
     )
 
-    try expectEqual(QuotaFormatting.compactText(for: snapshot), "Codex 15% / 周 2%", "compact text")
+    try expectEqual(QuotaFormatting.compactText(for: snapshot), "Codex 剩余 85% / 周 98%", "compact text")
+}
+
+func testRemainingPercentIsClampedToDisplayBounds() throws {
+    try expectEqual(
+        QuotaFormatting.remainingPercent(for: QuotaWindow(usedPercent: 37, durationMinutes: 300, resetsAt: nil)),
+        63,
+        "remaining percent"
+    )
+    try expectEqual(
+        QuotaFormatting.remainingPercent(for: QuotaWindow(usedPercent: -4, durationMinutes: 300, resetsAt: nil)),
+        100,
+        "negative used percent remaining"
+    )
+    try expectEqual(
+        QuotaFormatting.remainingPercent(for: QuotaWindow(usedPercent: 140, durationMinutes: 300, resetsAt: nil)),
+        0,
+        "over-limit used percent remaining"
+    )
 }
 
 func testCompactTextShowsUnavailableState() throws {

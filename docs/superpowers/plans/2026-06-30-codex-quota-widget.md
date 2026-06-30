@@ -6,7 +6,7 @@
 
 **Architecture:** A Swift package contains a testable `CodexQuotaCore` library plus a `CodexQuotaWidget` AppKit/SwiftUI executable. The core parses `account/rateLimits/read` JSON-RPC responses, maps them into display models, formats text, and talks to the local Codex app-server. The executable creates a borderless always-on-top panel and renders compact/expanded SwiftUI views.
 
-**Tech Stack:** Swift Package Manager, Swift 6, XCTest, Foundation `Process`/`Pipe`, AppKit `NSPanel`, SwiftUI.
+**Tech Stack:** Swift Package Manager, Swift 6, a lightweight executable Swift test runner, Foundation `Process`/`Pipe`, AppKit `NSPanel`, SwiftUI.
 
 ---
 
@@ -19,9 +19,9 @@
 - Create `Sources/CodexQuotaCore/JSONRPC.swift`: JSON-RPC request builders and response extraction.
 - Create `Sources/CodexQuotaCore/CodexAppServerClient.swift`: launches `codex app-server --stdio` and reads quota data.
 - Create `Sources/CodexQuotaWidget/main.swift`: app lifecycle, store, panel controller, and SwiftUI views.
-- Create `Tests/CodexQuotaCoreTests/QuotaMappingTests.swift`: parser and mapper tests.
-- Create `Tests/CodexQuotaCoreTests/QuotaFormattingTests.swift`: deterministic display formatting tests.
-- Create `Tests/CodexQuotaCoreTests/JSONRPCTests.swift`: request/response protocol tests.
+- Create `Tests/CodexQuotaCoreTests/QuotaMappingTests.swift`: parser and mapper tests using the executable test runner.
+- Create `Tests/CodexQuotaCoreTests/QuotaFormattingTests.swift`: deterministic display formatting tests registered in the executable test runner.
+- Create `Tests/CodexQuotaCoreTests/JSONRPCTests.swift`: request/response protocol tests registered in the executable test runner.
 - Create `scripts/build-app.sh`: builds a release executable and wraps it in `dist/CodexQuotaWidget.app`.
 
 ---
@@ -70,11 +70,10 @@ print("CodexQuotaWidget scaffold")
 
 ```swift
 // Tests/CodexQuotaCoreTests/QuotaMappingTests.swift
-import XCTest
-@testable import CodexQuotaCore
+import Foundation
+import CodexQuotaCore
 
-final class QuotaMappingTests: XCTestCase {
-    func testMapsCodexRateLimitsIntoDisplaySnapshot() throws {
+func testMapsCodexRateLimitsIntoDisplaySnapshot() throws {
         let json = """
         {
           "rateLimits": {
@@ -106,19 +105,18 @@ final class QuotaMappingTests: XCTestCase {
         let response = try JSONDecoder().decode(GetAccountRateLimitsResponse.self, from: json)
         let snapshot = try QuotaMapper.makeSnapshot(from: response, fetchedAt: Date(timeIntervalSince1970: 1_782_800_000))
 
-        XCTAssertEqual(snapshot.primary?.usedPercent, 15)
-        XCTAssertEqual(snapshot.primary?.durationMinutes, 300)
-        XCTAssertEqual(snapshot.secondary?.usedPercent, 2)
-        XCTAssertEqual(snapshot.secondary?.durationMinutes, 10080)
-        XCTAssertEqual(snapshot.planType, "plus")
-        XCTAssertEqual(snapshot.resetCreditsAvailable, 1)
-    }
+        try expectEqual(snapshot.primary?.usedPercent, 15, "primary used percent")
+        try expectEqual(snapshot.primary?.durationMinutes, 300, "primary duration")
+        try expectEqual(snapshot.secondary?.usedPercent, 2, "secondary used percent")
+        try expectEqual(snapshot.secondary?.durationMinutes, 10080, "secondary duration")
+        try expectEqual(snapshot.planType, "plus", "plan type")
+        try expectEqual(snapshot.resetCreditsAvailable, 1, "reset credits")
 }
 ```
 
 - [ ] **Step 3: Run the test and verify RED**
 
-Run: `swift test --filter QuotaMappingTests/testMapsCodexRateLimitsIntoDisplaySnapshot`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: FAIL at compile time because `GetAccountRateLimitsResponse` and `QuotaMapper` are not defined.
 
@@ -228,7 +226,7 @@ public enum QuotaMapper {
 
 - [ ] **Step 3: Run the mapping test and verify GREEN**
 
-Run: `swift test --filter QuotaMappingTests/testMapsCodexRateLimitsIntoDisplaySnapshot`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: PASS.
 
@@ -238,7 +236,7 @@ Add tests that confirm `rateLimits` is used when `rateLimitsByLimitId` is `null`
 
 - [ ] **Step 5: Run all mapping tests**
 
-Run: `swift test --filter QuotaMappingTests`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: PASS.
 
@@ -260,11 +258,10 @@ git commit -m "feat: map Codex quota snapshots"
 - [ ] **Step 1: Write failing formatting tests**
 
 ```swift
-import XCTest
-@testable import CodexQuotaCore
+import Foundation
+import CodexQuotaCore
 
-final class QuotaFormattingTests: XCTestCase {
-    func testCompactTextShowsPrimaryAndWeeklyPercentages() {
+func testCompactTextShowsPrimaryAndWeeklyPercentages() throws {
         let snapshot = QuotaSnapshot(
             primary: QuotaWindow(usedPercent: 15, durationMinutes: 300, resetsAt: nil),
             secondary: QuotaWindow(usedPercent: 2, durationMinutes: 10080, resetsAt: nil),
@@ -273,16 +270,16 @@ final class QuotaFormattingTests: XCTestCase {
             fetchedAt: Date()
         )
 
-        XCTAssertEqual(QuotaFormatting.compactText(for: snapshot), "Codex 15% / 周 2%")
-    }
+        try expectEqual(QuotaFormatting.compactText(for: snapshot), "Codex 15% / 周 2%", "compact text")
+}
 
-    func testWindowLabelsUseKnownDurations() {
-        XCTAssertEqual(QuotaFormatting.windowLabel(durationMinutes: 300), "5小时")
-        XCTAssertEqual(QuotaFormatting.windowLabel(durationMinutes: 10080), "周额度")
-        XCTAssertEqual(QuotaFormatting.windowLabel(durationMinutes: 60), "60分钟")
-    }
+func testWindowLabelsUseKnownDurations() throws {
+        try expectEqual(QuotaFormatting.windowLabel(durationMinutes: 300), "5小时", "5-hour label")
+        try expectEqual(QuotaFormatting.windowLabel(durationMinutes: 10080), "周额度", "weekly label")
+        try expectEqual(QuotaFormatting.windowLabel(durationMinutes: 60), "60分钟", "minute label")
+}
 
-    func testResetTextUsesTimeForSameDayAndDateForOtherDays() {
+func testResetTextUsesTimeForSameDayAndDateForOtherDays() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
 
@@ -290,15 +287,14 @@ final class QuotaFormattingTests: XCTestCase {
         let sameDay = DateComponents(calendar: calendar, timeZone: calendar.timeZone, year: 2026, month: 6, day: 30, hour: 14, minute: 47).date!
         let otherDay = DateComponents(calendar: calendar, timeZone: calendar.timeZone, year: 2026, month: 7, day: 7, hour: 1, minute: 20).date!
 
-        XCTAssertEqual(QuotaFormatting.resetText(for: sameDay, now: now, calendar: calendar), "14:47")
-        XCTAssertEqual(QuotaFormatting.resetText(for: otherDay, now: now, calendar: calendar), "7/7")
-    }
+        try expectEqual(QuotaFormatting.resetText(for: sameDay, now: now, calendar: calendar), "14:47", "same-day reset")
+        try expectEqual(QuotaFormatting.resetText(for: otherDay, now: now, calendar: calendar), "7/7", "other-day reset")
 }
 ```
 
 - [ ] **Step 2: Run formatting tests and verify RED**
 
-Run: `swift test --filter QuotaFormattingTests`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: FAIL because `QuotaFormatting` is not defined.
 
@@ -341,7 +337,7 @@ public enum QuotaFormatting {
 
 - [ ] **Step 4: Run formatting tests and verify GREEN**
 
-Run: `swift test --filter QuotaFormattingTests`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: PASS.
 
@@ -363,39 +359,37 @@ git commit -m "feat: format quota display text"
 - [ ] **Step 1: Write failing JSON-RPC tests**
 
 ```swift
-import XCTest
-@testable import CodexQuotaCore
+import Foundation
+import CodexQuotaCore
 
-final class JSONRPCTests: XCTestCase {
-    func testBuildsAccountRateLimitRequestLine() throws {
+func testBuildsAccountRateLimitRequestLine() throws {
         let line = try JSONRPC.makeRequestLine(id: 2, method: "account/rateLimits/read")
         let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
 
-        XCTAssertEqual(object?["id"] as? Int, 2)
-        XCTAssertEqual(object?["method"] as? String, "account/rateLimits/read")
-        XCTAssertTrue(line.hasSuffix("\n"))
-    }
+        try expectEqual(object?["id"] as? Int, 2, "request id")
+        try expectEqual(object?["method"] as? String, "account/rateLimits/read", "request method")
+        try expectEqual(line.hasSuffix("\n"), true, "request newline")
+}
 
-    func testExtractsResultForMatchingResponseId() throws {
+func testExtractsResultForMatchingResponseId() throws {
         let line = #"{"id":2,"result":{"rateLimits":{"limitId":"codex","limitName":null,"primary":null,"secondary":null,"credits":null,"individualLimit":null,"planType":"plus","rateLimitReachedType":null},"rateLimitsByLimitId":null,"rateLimitResetCredits":null}}"#
 
         let data = try JSONRPC.extractResultData(fromLine: line, matchingId: 2)
         let response = try JSONDecoder().decode(GetAccountRateLimitsResponse.self, from: data)
 
-        XCTAssertEqual(response.rateLimits.limitId, "codex")
-        XCTAssertEqual(response.rateLimits.planType, "plus")
-    }
+        try expectEqual(response.rateLimits.limitId, "codex", "response limit id")
+        try expectEqual(response.rateLimits.planType, "plus", "response plan type")
+}
 
-    func testIgnoresNotificationLines() throws {
+func testIgnoresNotificationLines() throws {
         let line = #"{"method":"account/rateLimits/updated","params":{}}"#
-        XCTAssertNil(try JSONRPC.extractResultData(fromLine: line, matchingId: 2))
-    }
+        try expectEqual(try JSONRPC.extractResultData(fromLine: line, matchingId: 2) == nil, true, "notification ignored")
 }
 ```
 
 - [ ] **Step 2: Run JSON-RPC tests and verify RED**
 
-Run: `swift test --filter JSONRPCTests`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: FAIL because `JSONRPC` is not defined.
 
@@ -405,7 +399,7 @@ Create request-line builders for requests and notifications, plus an extractor t
 
 - [ ] **Step 4: Run JSON-RPC tests and verify GREEN**
 
-Run: `swift test --filter JSONRPCTests`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: PASS.
 
@@ -429,13 +423,13 @@ git commit -m "feat: add JSON-RPC helpers"
 ```swift
 func testUsesEnvironmentOverrideForCodexBinaryPath() {
     let path = CodexAppServerClient.resolveCodexBinaryPath(environment: ["CODEX_QUOTA_CODEX_BIN": "/tmp/codex-test"])
-    XCTAssertEqual(path, "/tmp/codex-test")
+    try expectEqual(path, "/tmp/codex-test", "environment override path")
 }
 ```
 
 - [ ] **Step 2: Run the targeted test and verify RED**
 
-Run: `swift test --filter JSONRPCTests/testUsesEnvironmentOverrideForCodexBinaryPath`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: FAIL because `CodexAppServerClient` is not defined.
 
@@ -461,7 +455,7 @@ Launch `codex app-server --stdio`, send `initialize`, `initialized`, and `accoun
 
 - [ ] **Step 5: Run tests**
 
-Run: `swift test`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: PASS.
 
@@ -548,7 +542,7 @@ git commit -m "build: add macOS app bundle script"
 
 - [ ] **Step 1: Run tests**
 
-Run: `swift test`
+Run: `swift run CodexQuotaCoreTests`
 
 Expected: PASS.
 

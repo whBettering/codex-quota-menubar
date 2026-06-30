@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol QuotaFetching {
+public protocol QuotaFetching: Sendable {
     func fetchQuota() async throws -> QuotaSnapshot
 }
 

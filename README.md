@@ -1,4 +1,7 @@
 这是一份为您的小工具 `CodexQuotaMenubar` 编写的中文使用指南。您可以将其直接添加到项目的 `README.md` 文件中。
+<img width="492" height="98" alt="image" src="https://github.com/user-attachments/assets/4479e828-6395-46f5-9f7f-0e2d6e0b5620" />
+<img width="528" height="251" alt="image" src="https://github.com/user-attachments/assets/6e2edd12-e8e2-4854-b8ce-9160d5479634" />
+<img width="487" height="137" alt="image" src="https://github.com/user-attachments/assets/3a0b7149-86cc-4fd2-9a68-7fb0b513caf3" />
 
 ---
 

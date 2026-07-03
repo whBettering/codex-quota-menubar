@@ -4,28 +4,18 @@ import SwiftUI
 
 @main
 @MainActor
-enum CodexQuotaWidgetMain {
+enum CodexQuotaMenuBarMain {
     private static let runtime = AppRuntime()
 
     static func main() {
         if CommandLine.arguments.contains("--print-quota") {
-            Task {
-                do {
-                    let snapshot = try await CodexAppServerClient().fetchQuota()
-                    print(QuotaFormatting.compactText(for: snapshot))
-                    exit(0)
-                } catch {
-                    fputs("\(error)\n", stderr)
-                    exit(1)
-                }
-            }
-            dispatchMain()
+            Self.printQuotaAndExit()
         }
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         app.finishLaunching()
-        ProcessInfo.processInfo.disableAutomaticTermination("Codex quota widget stays visible")
+        ProcessInfo.processInfo.disableAutomaticTermination("Codex quota menu bar stays visible")
 
         DispatchQueue.main.async {
             runtime.start()
@@ -33,21 +23,34 @@ enum CodexQuotaWidgetMain {
 
         app.run()
     }
+
+    private static func printQuotaAndExit() -> Never {
+        Task {
+            do {
+                let snapshot = try await CodexAppServerClient().fetchQuota()
+                print(QuotaFormatting.compactText(for: snapshot))
+                exit(0)
+            } catch {
+                fputs("\(error)\n", stderr)
+                exit(1)
+            }
+        }
+        dispatchMain()
+    }
 }
 
 @MainActor
 final class AppRuntime {
-    private var panelController: FloatingPanelController?
     private var quotaStore: QuotaStore?
+    private var statusItemController: StatusItemController?
 
     func start() {
         let store = QuotaStore(fetcher: CodexAppServerClient())
-        let controller = FloatingPanelController(store: store)
+        let controller = StatusItemController(store: store)
 
         quotaStore = store
-        panelController = controller
+        statusItemController = controller
 
-        controller.show()
         store.start()
     }
 }
@@ -61,12 +64,19 @@ final class QuotaStore: ObservableObject {
 
     private let fetcher: QuotaFetching
     private var timer: Timer?
+    private var hasStarted = false
+    var onDisplayChange: (@MainActor () -> Void)?
 
     init(fetcher: QuotaFetching) {
         self.fetcher = fetcher
     }
 
     func start() {
+        guard !hasStarted else {
+            return
+        }
+
+        hasStarted = true
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -78,6 +88,7 @@ final class QuotaStore: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        hasStarted = false
     }
 
     func refresh() {
@@ -100,288 +111,115 @@ final class QuotaStore: ObservableObject {
                 self.snapshot = snapshot
                 self.errorMessage = nil
                 self.lastRefresh = Date()
+                self.onDisplayChange?()
             } catch {
                 self.errorMessage = String(describing: error)
                 self.lastRefresh = Date()
+                self.onDisplayChange?()
             }
         }
     }
 }
 
 @MainActor
-final class FloatingPanelController {
-    private let compactSize = CGSize(width: 206, height: 34)
-    private let expandedSize = CGSize(width: 360, height: 172)
-    private let panel: NSPanel
-    private var hostingController: NSHostingController<QuotaView>?
+final class StatusItemController: NSObject {
+    private let store: QuotaStore
+    private let statusItem: NSStatusItem
+    private let popover: NSPopover
+    private let contextMenu: NSMenu
 
     init(store: QuotaStore) {
-        panel = NSPanel(
-            contentRect: CGRect(origin: .zero, size: compactSize),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        panel.backgroundColor = .clear
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        panel.isMovable = true
-        panel.isOpaque = false
-        panel.level = .statusBar
-        panel.titleVisibility = .hidden
+        self.store = store
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        popover = NSPopover()
+        contextMenu = NSMenu()
 
-        let rootView = QuotaView(store: store) { [weak self] isExpanded in
-            self?.setExpanded(isExpanded)
-        } onDragDelta: { [weak self] delta in
-            self?.movePanel(by: delta)
-        } onDragEnded: { [weak self] in
-            self?.saveCurrentPosition()
+        super.init()
+
+        configureStatusItem()
+        configurePopover()
+        configureContextMenu()
+
+        store.onDisplayChange = { [weak self] in
+            self?.updateTitle()
         }
-        let hostingController = NSHostingController(rootView: rootView)
-        hostingController.view.frame = CGRect(origin: .zero, size: compactSize)
-        hostingController.view.autoresizingMask = [.width, .height]
-        self.hostingController = hostingController
-        panel.contentView = hostingController.view
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(screenParametersDidChange),
-            name: NSApplication.didChangeScreenParametersNotification,
-            object: nil
-        )
+        updateTitle()
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+    private func configureStatusItem() {
+        guard let button = statusItem.button else {
+            return
+        }
+
+        button.target = self
+        button.action = #selector(statusItemClicked(_:))
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.toolTip = "Codex 剩余额度"
     }
 
-    func show() {
-        panel.setFrame(initialFrame(for: compactSize), display: true)
-        panel.makeKeyAndOrderFront(nil)
-        panel.orderFrontRegardless()
+    private func configurePopover() {
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 360, height: 180)
+        popover.contentViewController = NSHostingController(rootView: QuotaPopoverView(store: store))
     }
 
-    private func setExpanded(_ isExpanded: Bool) {
-        let size = isExpanded ? expandedSize : compactSize
-        let origin = constrainedOrigin(
-            FloatingWindowPlacement.originPreservingTopCenter(
-                currentFrame: panel.frame,
-                targetSize: size
-            ),
-            size: size
-        )
-        let frame = CGRect(origin: origin, size: size)
+    private func configureContextMenu() {
+        let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
+        quitItem.keyEquivalentModifierMask = [.command]
+        quitItem.target = self
+        contextMenu.addItem(quitItem)
+    }
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().setFrame(frame, display: true)
+    private func updateTitle() {
+        statusItem.button?.title = QuotaFormatting.menuBarTitle(for: store.snapshot)
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        let isRightClick = event?.type == .rightMouseUp
+            || (event?.type == .leftMouseUp && event?.modifierFlags.contains(.control) == true)
+
+        switch MenuBarClickRoute.route(isRightClick: isRightClick) {
+        case .togglePopover:
+            togglePopover(sender)
+        case .showContextMenu:
+            showContextMenu(sender)
         }
     }
 
-    @objc private func screenParametersDidChange() {
-        let frame = CGRect(
-            origin: constrainedOrigin(panel.frame.origin, size: panel.frame.size),
-            size: panel.frame.size
-        )
-        panel.setFrame(frame, display: true)
-        saveCurrentPosition()
+    private func togglePopover(_ sender: NSStatusBarButton) {
+        if popover.isShown {
+            popover.performClose(sender)
+            return
+        }
+
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
-    private func initialFrame(for size: CGSize) -> CGRect {
-        let origin = FloatingPanelPositionStore.savedTopCenter()
-            .map {
-                FloatingWindowPlacement.origin(forTopCenter: $0, targetSize: size)
-            }
-            ?? defaultOrigin(for: size)
-
-        return CGRect(origin: constrainedOrigin(origin, size: size), size: size)
+    private func showContextMenu(_ sender: NSStatusBarButton) {
+        popover.performClose(sender)
+        statusItem.menu = contextMenu
+        sender.performClick(nil)
+        statusItem.menu = nil
     }
 
-    private func defaultOrigin(for size: CGSize) -> CGPoint {
-        let screen = NSScreen.screens.first { $0.frame.origin == .zero }
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-        let visibleFrame = screen?.visibleFrame ?? .zero
-        return FloatingWindowPlacement.defaultOrigin(size: size, visibleFrame: visibleFrame)
-    }
-
-    private func constrainedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
-        FloatingWindowPlacement.constrainedOrigin(
-            origin,
-            size: size,
-            visibleFrames: NSScreen.screens.map(\.visibleFrame)
-        )
-    }
-
-    private func movePanel(by delta: CGSize) {
-        let origin = CGPoint(
-            x: panel.frame.origin.x + delta.width,
-            y: panel.frame.origin.y + delta.height
-        )
-        panel.setFrameOrigin(origin)
-    }
-
-    private func saveCurrentPosition() {
-        FloatingPanelPositionStore.saveTopCenter(FloatingWindowPlacement.topCenter(of: panel.frame))
+    @objc private func quit() {
+        NSApp.terminate(nil)
     }
 }
 
-private enum FloatingPanelPositionStore {
-    private static let xKey = "CodexQuotaWidget.floatingPanel.topCenter.x"
-    private static let yKey = "CodexQuotaWidget.floatingPanel.topCenter.y"
-
-    static func savedTopCenter(defaults: UserDefaults = .standard) -> CGPoint? {
-        guard defaults.object(forKey: xKey) != nil,
-              defaults.object(forKey: yKey) != nil
-        else {
-            return nil
-        }
-
-        return CGPoint(
-            x: defaults.double(forKey: xKey),
-            y: defaults.double(forKey: yKey)
-        )
-    }
-
-    static func saveTopCenter(
-        _ topCenter: CGPoint,
-        defaults: UserDefaults = .standard
-    ) {
-        defaults.set(Double(topCenter.x), forKey: xKey)
-        defaults.set(Double(topCenter.y), forKey: yKey)
-    }
-}
-
-struct QuotaView: View {
+struct QuotaPopoverView: View {
     @ObservedObject var store: QuotaStore
 
-    let onExpansionChange: @MainActor @Sendable (Bool) -> Void
-    let onDragDelta: @MainActor @Sendable (CGSize) -> Void
-    let onDragEnded: @MainActor @Sendable () -> Void
-
-    @State private var isExpanded = false
-    @State private var isDragging = false
-    @State private var isHovering = false
-    @State private var lastDragScreenPoint: CGPoint?
-
     var body: some View {
-        ZStack(alignment: .top) {
-            if isExpanded {
-                expandedCard
-                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
-            } else {
-                compactPill
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-            }
-        }
-        .frame(width: isExpanded ? 360 : 206, height: isExpanded ? 172 : 34, alignment: .top)
-        .onHover(perform: handleHover)
-        .simultaneousGesture(dragGesture)
-    }
-
-    private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 3)
-            .onChanged { _ in
-                isDragging = true
-                let point = NSEvent.mouseLocation
-
-                guard let previousPoint = lastDragScreenPoint else {
-                    lastDragScreenPoint = point
-                    return
-                }
-
-                onDragDelta(
-                    CGSize(
-                        width: point.x - previousPoint.x,
-                        height: point.y - previousPoint.y
-                    )
-                )
-                lastDragScreenPoint = point
-            }
-            .onEnded { _ in
-                lastDragScreenPoint = nil
-                isDragging = false
-                onDragEnded()
-
-                if !isHovering {
-                    setExpanded(false)
-                }
-            }
-    }
-
-    private var compactPill: some View {
-        HStack(spacing: 8) {
-            Text(QuotaFormatting.compactText(for: store.snapshot))
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .lineLimit(1)
-
-            if store.isRefreshing {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.55)
-                    .frame(width: 12, height: 12)
-            }
-        }
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 13)
-        .frame(width: 206, height: 34)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay {
-            Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 8)
-    }
-
-    private var expandedCard: some View {
         VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 8) {
-                Text("Codex")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-
-                if let plan = store.snapshot?.planType {
-                    Text(plan.uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.10), in: Capsule())
-                }
-
-                Spacer()
-
-                Button(action: store.refresh) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-                .disabled(store.isRefreshing)
-                .help("刷新额度")
-
-                Button(action: { NSApp.terminate(nil) }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-                .help("退出")
-            }
+            header
 
             if let snapshot = store.snapshot {
                 quotaRow(snapshot.primary, accent: .green)
                 quotaRow(snapshot.secondary, accent: .mint)
-
-                HStack {
-                    Text(metaText(for: snapshot))
-                    Spacer()
-                    if store.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                            .scaleEffect(0.55)
-                    }
-                }
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                footer(for: snapshot)
             } else {
                 unavailableView
             }
@@ -396,13 +234,40 @@ struct QuotaView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(width: 360, height: 172, alignment: .top)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.20), lineWidth: 1)
+        .frame(width: 360, alignment: .topLeading)
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("Codex")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+
+            if let plan = store.snapshot?.planType {
+                Text(plan.uppercased())
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.10), in: Capsule())
+            }
+
+            Spacer()
+
+            Button(action: store.refresh) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .disabled(store.isRefreshing)
+            .help("刷新额度")
+
+            Button(action: { NSApp.terminate(nil) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .help("退出")
         }
-        .shadow(color: .black.opacity(0.22), radius: 18, x: 0, y: 10)
     }
 
     private var unavailableView: some View {
@@ -413,7 +278,21 @@ struct QuotaView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+    }
+
+    private func footer(for snapshot: QuotaSnapshot) -> some View {
+        HStack {
+            Text(metaText(for: snapshot))
+            Spacer()
+            if store.isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.55)
+            }
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.secondary)
     }
 
     private func quotaRow(_ window: QuotaWindow?, accent: Color) -> some View {
@@ -444,28 +323,6 @@ struct QuotaView: View {
             }
         }
         .frame(height: 6)
-    }
-
-    private func handleHover(_ hovering: Bool) {
-        isHovering = hovering
-
-        if hovering {
-            setExpanded(true)
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            if !isHovering && !isDragging {
-                setExpanded(false)
-            }
-        }
-    }
-
-    private func setExpanded(_ value: Bool) {
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
-            isExpanded = value
-        }
-        onExpansionChange(value)
     }
 
     private func metaText(for snapshot: QuotaSnapshot) -> String {

@@ -1,6 +1,10 @@
 import Foundation
 
 public enum QuotaFormatting {
+    public static func menuBarTitle(for snapshot: QuotaSnapshot?) -> String {
+        compactText(for: snapshot)
+    }
+
     public static func compactText(for snapshot: QuotaSnapshot?) -> String {
         guard let snapshot else {
             return "Codex --"

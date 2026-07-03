@@ -35,6 +35,19 @@ func testCompactTextShowsUnavailableState() throws {
     try expectEqual(QuotaFormatting.compactText(for: nil), "Codex --", "unavailable compact text")
 }
 
+func testMenuBarTitleUsesCompactQuotaText() throws {
+    let snapshot = QuotaSnapshot(
+        primary: QuotaWindow(usedPercent: 20, durationMinutes: 300, resetsAt: nil),
+        secondary: QuotaWindow(usedPercent: 45, durationMinutes: 10080, resetsAt: nil),
+        planType: "plus",
+        resetCreditsAvailable: 1,
+        fetchedAt: Date()
+    )
+
+    try expectEqual(QuotaFormatting.menuBarTitle(for: snapshot), "Codex 剩余 80% / 周 55%", "menu bar title")
+    try expectEqual(QuotaFormatting.menuBarTitle(for: nil), "Codex --", "missing menu bar title")
+}
+
 func testWindowLabelsUseKnownDurations() throws {
     try expectEqual(QuotaFormatting.windowLabel(durationMinutes: 300), "5小时", "5-hour label")
     try expectEqual(QuotaFormatting.windowLabel(durationMinutes: 10080), "周额度", "weekly label")

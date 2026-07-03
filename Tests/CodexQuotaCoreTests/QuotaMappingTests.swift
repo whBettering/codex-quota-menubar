@@ -134,6 +134,7 @@ struct TestRunner {
             ("testCompactTextShowsRemainingPrimaryAndWeeklyPercentages", testCompactTextShowsRemainingPrimaryAndWeeklyPercentages),
             ("testRemainingPercentIsClampedToDisplayBounds", testRemainingPercentIsClampedToDisplayBounds),
             ("testCompactTextShowsUnavailableState", testCompactTextShowsUnavailableState),
+            ("testMenuBarTitleUsesCompactQuotaText", testMenuBarTitleUsesCompactQuotaText),
             ("testWindowLabelsUseKnownDurations", testWindowLabelsUseKnownDurations),
             ("testResetTextUsesTimeForSameDayAndDateForOtherDays", testResetTextUsesTimeForSameDayAndDateForOtherDays),
             ("testBuildsAccountRateLimitRequestLine", testBuildsAccountRateLimitRequestLine),
@@ -141,6 +142,7 @@ struct TestRunner {
             ("testIgnoresNotificationLines", testIgnoresNotificationLines),
             ("testThrowsForMatchingErrorResponse", testThrowsForMatchingErrorResponse),
             ("testUsesEnvironmentOverrideForCodexBinaryPath", testUsesEnvironmentOverrideForCodexBinaryPath),
+            ("testMenuBarClickRoutingSeparatesLeftAndRightClick", testMenuBarClickRoutingSeparatesLeftAndRightClick),
             ("testDefaultFloatingWindowOriginUsesTopCenterOfVisibleFrame", testDefaultFloatingWindowOriginUsesTopCenterOfVisibleFrame),
             ("testResizingPreservesDraggedTopCenter", testResizingPreservesDraggedTopCenter),
             ("testConstrainedOriginMovesSavedPositionBackIntoVisibleFrame", testConstrainedOriginMovesSavedPositionBackIntoVisibleFrame)

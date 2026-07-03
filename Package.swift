@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "CodexQuotaWidget",
+    name: "CodexQuotaMenubar",
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "CodexQuotaCore", targets: ["CodexQuotaCore"]),
-        .executable(name: "CodexQuotaWidget", targets: ["CodexQuotaWidget"]),
+        .executable(name: "CodexQuotaMenubar", targets: ["CodexQuotaWidget"]),
         .executable(name: "CodexQuotaCoreTests", targets: ["CodexQuotaCoreTests"])
     ],
     targets: [
